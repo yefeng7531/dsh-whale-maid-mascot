@@ -1,0 +1,5 @@
+# dsh bundle layer: mount the whale-maid mascot host plugin
+# (dsh/index.js serves the character PNGs to the browser client).
+- insert:
+    - id: whale-maid-mascot
+      name: 'dsh-whale-maid-mascot'

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>whale maid mascot client test</title>
+<style>
+  html,body{margin:0;height:100%;background:linear-gradient(135deg,#0b1220,#1e2b45);color:#e2e8f0;font-family:"Segoe UI","Microsoft YaHei",sans-serif}
+  .chat{position:absolute;left:50%;top:40px;transform:translateX(-50%);width:520px;background:#0f172a;border:1px solid #334155;border-radius:16px;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+  .chat h2{margin:0 0 12px;font-size:18px}
+  .chat p{background:#1e293b;border-radius:10px;padding:12px;font-size:14px}
+</style>
+</head>
+<body>
+  <div class="chat">
+    <h2>DeepSeek Harness (mock chat)</h2>
+    <p>这是模拟的对话页面，用于验收右下角的页面宠物。</p>
+  </div>
+  <script>
+    window.__ModuleLoader__ = {
+      load: function (spec) {
+        var mod = spec.factory()
+        window.__client = mod
+        setTimeout(function () {
+          mod.apply({
+            effect: function (fn) { window.__cleanup = fn() },
+          })
+        }, 150)
+      },
+    }
+  </script>
+  <script src="/dsh/client.js"></script>
+  <script>
+    function petClickAt(yFrac, delay) {
+      setTimeout(function () {
+        var root = document.querySelector('.wm-root')
+        var img = document.querySelector('.wm-img')
+        if (!root || !img) return
+        var r = img.getBoundingClientRect()
+        var x = r.left + r.width / 2
+        var y = r.top + r.height * yFrac
+        var opts = { bubbles: true, cancelable: true, button: 0, pointerId: 1, clientX: x, clientY: y }
+        root.dispatchEvent(new PointerEvent('pointerdown', opts))
+        root.dispatchEvent(new PointerEvent('pointerup', opts))
+      }, delay)
+    }
+
+    var mode = new URLSearchParams(location.search).get('m') || ''
+    if (mode === 'head') petClickAt(0.12, 1800)
+    else if (mode === 'chest') petClickAt(0.33, 1800)
+    else if (mode === 'legs') petClickAt(0.9, 1800)
+    else if (mode === 'skirt') petClickAt(0.6, 1800)
+    else if (mode === 'angry') {
+      petClickAt(0.6, 1800)
+      petClickAt(0.6, 2000)
+      petClickAt(0.6, 2200)
+    } else if (mode === 'three') {
+      // 3 fast clicks must NOT trigger anger any more
+      petClickAt(0.6, 1800)
+      petClickAt(0.6, 2000)
+      petClickAt(0.6, 2200)
+    } else if (mode === 'ten') {
+      for (var k = 0; k < 10; k++) petClickAt(0.6, 1200 + k * 180)
+    } else if (mode === 'style') {
+      setTimeout(function () {
+        var btn = document.querySelector('.wm-style')
+        if (btn) btn.click()
+      }, 1500)
+    } else if (mode === 'styleC') {
+      setTimeout(function () {
+        var btn = document.querySelector('.wm-style')
+        if (btn) btn.click()
+      }, 1000)
+      setTimeout(function () {
+        var btn = document.querySelector('.wm-style')
+        if (btn) btn.click()
+      }, 1300)
+    } else if (mode === 'ctx') {
+      setTimeout(function () {
+        var root = document.querySelector('.wm-root')
+        if (root) root.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 240, clientY: 180 }))
+      }, 1800)
+    } else if (mode === 'styleBchest') {
+      setTimeout(function () {
+        var btn = document.querySelector('.wm-style')
+        if (btn) btn.click()
+      }, 1000)
+      petClickAt(0.45, 2000)
+    } else if (mode === 'debug') {
+      setTimeout(function () {
+        var btn = document.querySelector('.wm-style')
+        if (btn) btn.click()
+      }, 800)
+      setTimeout(function () {
+        var b = document.querySelector('.wm-blush.l')
+        var b2 = document.querySelector('.wm-blush.r')
+        var w = document.querySelector('.wm-body')
+        function forceShow(el) {
+          if (!el) return
+          el.classList.add('show')
+          el.style.display = 'block'
+          el.style.animation = 'none'
+          el.style.transform = 'none'
+        }
+        forceShow(b)
+        forceShow(b2)
+        var r = b ? b.getBoundingClientRect() : null
+        var r2 = b2 ? b2.getBoundingClientRect() : null
+        var wr = w ? w.getBoundingClientRect() : null
+        document.body.setAttribute('data-debug', JSON.stringify({
+          blush: r ? { left: r.left, top: r.top, width: r.width, height: r.height } : null,
+          blushR: r2 ? { left: r2.left, top: r2.top, width: r2.width, height: r2.height } : null,
+          body: wr ? { left: wr.left, top: wr.top, width: wr.width, height: wr.height } : null,
+        }))
+      }, 1800)
+    }
+  </script>
+</body>
+</html>
