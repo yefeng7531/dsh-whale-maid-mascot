@@ -218,6 +218,9 @@ if (!window.__ModuleLoader__ || typeof window.__ModuleLoader__.load !== 'functio
       var commonPromptBtn = null
       var notifBtn = null
       var notifEnabled = false
+      var feedSessionId = null
+      var feedArmedAction = null
+      var feedArmTimer = null
       var sessionWatchUnsubscribe = null
       var sessionWatchTimer = null
       var lastRunningSessionId = null
@@ -260,6 +263,7 @@ if (!window.__ModuleLoader__ || typeof window.__ModuleLoader__.load !== 'functio
           'animation:wm-float 3.4s ease-in-out infinite;}' +
           '.wm-root.dragging{cursor:grabbing;animation-play-state:paused;}' +
           '.wm-root.dragging .wm-body{animation-play-state:paused;}' +
+          '.wm-root.drop-target{outline:2px dashed #7fb8dc;outline-offset:4px;border-radius:16px;}' +
           '.wm-root.style-c{height:170px;}' +
           '.wm-body{position:absolute;left:50%;bottom:0;transform:translateX(-50%);' +
           'transform-origin:50% 88%;animation:wm-sway 4.4s ease-in-out infinite;}' +
@@ -690,6 +694,160 @@ if (!window.__ModuleLoader__ || typeof window.__ModuleLoader__.load !== 'functio
         say('已填入输入框，你可以修改后发送')
       }
 
+      // --- drag & drop feed: delete or archive session --------------------------
+
+      function onDragOver(e) {
+        e.preventDefault()
+        if (root) root.classList.add('drop-target')
+      }
+
+      function onDragEnter(e) {
+        e.preventDefault()
+        if (root) root.classList.add('drop-target')
+      }
+
+      function onDragLeave(e) {
+        if (root) root.classList.remove('drop-target')
+      }
+
+      function onDrop(e) {
+        e.preventDefault()
+        if (root) root.classList.remove('drop-target')
+        var sessionId = ''
+        try {
+          sessionId = e.dataTransfer.getData('text/plain') || ''
+        } catch (err) {}
+        if (!sessionId) {
+          say('没有识别到可投喂的会话')
+          return
+        }
+        openFeedMenu(sessionId, e.clientX, e.clientY)
+      }
+
+      function openFeedMenu(sessionId, x, y) {
+        feedSessionId = sessionId
+        resetFeedArm()
+        if (!menuEl) return
+        renderFeedMenu()
+        var menuW = 210
+        var menuH = 150
+        var left = Math.min(x, window.innerWidth - menuW - 8)
+        var top = Math.min(y, window.innerHeight - menuH - 8)
+        menuEl.style.left = Math.max(8, left) + 'px'
+        menuEl.style.top = Math.max(8, top) + 'px'
+        menuEl.style.display = 'block'
+      }
+
+      function resetFeedArm() {
+        feedArmedAction = null
+        clearTimeout(feedArmTimer)
+      }
+
+      function cancelFeedMenu() {
+        resetFeedArm()
+        feedSessionId = null
+        hideContextMenu()
+      }
+
+      function renderFeedMenu() {
+        if (!menuEl) return
+        menuEl.innerHTML = ''
+        var title = document.createElement('div')
+        title.style.cssText = 'padding:6px 10px;font-weight:600;font-size:13px;color:#334155;'
+        title.textContent = '投喂会话'
+        menuEl.appendChild(title)
+
+        var archiveBtn = document.createElement('button')
+        archiveBtn.type = 'button'
+        archiveBtn.className = 'wm-menu-item'
+        archiveBtn.textContent = feedArmedAction === 'archive' ? '⚠ 再点一次确认归档' : '📦 归档会话'
+        archiveBtn.addEventListener('click', onFeedArchiveClick)
+        menuEl.appendChild(archiveBtn)
+
+        var deleteBtn = document.createElement('button')
+        deleteBtn.type = 'button'
+        deleteBtn.className = 'wm-menu-item'
+        deleteBtn.textContent = feedArmedAction === 'delete' ? '⚠ 再点一次确认删除' : '🗑 删除会话'
+        deleteBtn.addEventListener('click', onFeedDeleteClick)
+        menuEl.appendChild(deleteBtn)
+
+        var cancelBtn = document.createElement('button')
+        cancelBtn.type = 'button'
+        cancelBtn.className = 'wm-menu-item'
+        cancelBtn.textContent = '取消'
+        cancelBtn.addEventListener('click', cancelFeedMenu)
+        menuEl.appendChild(cancelBtn)
+      }
+
+      function onFeedArchiveClick() {
+        if (feedArmedAction !== 'archive') {
+          feedArmedAction = 'archive'
+          clearTimeout(feedArmTimer)
+          feedArmTimer = setTimeout(resetFeedArm, 3000)
+          renderFeedMenu()
+          return
+        }
+        var sessionId = feedSessionId
+        resetFeedArm()
+        hideContextMenu()
+        executeFeedArchive(sessionId)
+      }
+
+      function onFeedDeleteClick() {
+        if (feedArmedAction !== 'delete') {
+          feedArmedAction = 'delete'
+          clearTimeout(feedArmTimer)
+          feedArmTimer = setTimeout(resetFeedArm, 3000)
+          renderFeedMenu()
+          return
+        }
+        var sessionId = feedSessionId
+        resetFeedArm()
+        hideContextMenu()
+        executeFeedDelete(sessionId)
+      }
+
+      function executeFeedArchive(sessionId) {
+        if (!sessionId) return
+        ensureServices()
+        if (!__workspacesSvc || typeof __workspacesSvc.archiveSession !== 'function') {
+          say('归档服务不可用')
+          return
+        }
+        __workspacesSvc.archiveSession(sessionId).then(function () {
+          say('已归档会话')
+        }, function (err) {
+          say('归档失败：' + (err && err.message ? err.message : String(err)))
+        })
+      }
+
+      function executeFeedDelete(sessionId) {
+        if (!sessionId) return
+        ensureServices()
+        var svc = __sessionsSvc
+        var deletedCurrent = false
+        try {
+          deletedCurrent = svc && svc.list ? svc.list.getSnapshot().current === sessionId : false
+        } catch (e) {}
+        deleteSessionById(sessionId).then(function () {
+          say('已删除会话')
+          if (svc && typeof svc.refreshList === 'function') {
+            var done = svc.refreshList()
+            if (deletedCurrent) {
+              Promise.resolve(done).then(function () {
+                try {
+                  var snap = svc.list.getSnapshot()
+                  var next = (snap.ids || []).find(function (id) { return id !== sessionId })
+                  if (next && typeof svc.open === 'function') svc.open(next)
+                } catch (e) {}
+              })
+            }
+          }
+        }, function (err) {
+          say('删除失败：' + (err && err.message ? err.message : String(err)))
+        })
+      }
+
       // --- system notification + task completion reminder -----------------------
 
       function onNotifMenuClick() {
@@ -926,7 +1084,16 @@ if (!window.__ModuleLoader__ || typeof window.__ModuleLoader__.load !== 'functio
             return !isExplainSession(id)
           }).map(function (id) {
             var s = byId[id]
-            return s ? s : { sessionId: id, title: '未命名会话', updatedAt: 0 }
+            if (s) {
+              return {
+                id: s.id || id,
+                sessionId: s.id || s.sessionId || id,
+                displayTitle: s.displayTitle,
+                title: s.title,
+                updatedAt: s.updatedAt,
+              }
+            }
+            return { sessionId: id, id: id, title: '未命名会话', updatedAt: 0 }
           })
         } catch (e) {
           return []
@@ -1013,6 +1180,8 @@ if (!window.__ModuleLoader__ || typeof window.__ModuleLoader__.load !== 'functio
         e.stopPropagation()
         cancelExplainMode()
         resetArchiveArm()
+        resetFeedArm()
+        feedSessionId = null
         resetIdleTimer()
         if (!menuEl) return
         renderMainMenu()
@@ -1028,6 +1197,8 @@ if (!window.__ModuleLoader__ || typeof window.__ModuleLoader__.load !== 'functio
       function hideContextMenu() {
         if (menuEl) menuEl.style.display = 'none'
         resetArchiveArm()
+        resetFeedArm()
+        feedSessionId = null
       }
 
       function onContextMenu(e) {
@@ -1102,7 +1273,7 @@ if (!window.__ModuleLoader__ || typeof window.__ModuleLoader__.load !== 'functio
           row.appendChild(titleSpan)
           row.appendChild(timeSpan)
           row.addEventListener('click', function () {
-            renderArchivedDetail(s.sessionId)
+            renderArchivedDetail(s.sessionId || s.id)
           })
           archivedListEl.appendChild(row)
         })
@@ -1213,7 +1384,7 @@ if (!window.__ModuleLoader__ || typeof window.__ModuleLoader__.load !== 'functio
 
       function storeGet(key) {
         try {
-          return window.storeGet(key)
+          return window.localStorage.getItem(key)
         } catch (e) {
           return null
         }
@@ -1221,13 +1392,13 @@ if (!window.__ModuleLoader__ || typeof window.__ModuleLoader__.load !== 'functio
 
       function storeSet(key, value) {
         try {
-          window.storeSet(key, value)
+          window.localStorage.setItem(key, value)
         } catch (e) {}
       }
 
       function storeRemove(key) {
         try {
-          window.storeRemove(key)
+          window.localStorage.removeItem(key)
         } catch (e) {}
       }
 
@@ -2039,6 +2210,7 @@ if (!window.__ModuleLoader__ || typeof window.__ModuleLoader__.load !== 'functio
         clearTimeout(reboundTimer)
         clearTimeout(dropTimer)
         clearTimeout(archiveArmTimer)
+        clearTimeout(feedArmTimer)
         clearTimeout(idleTimer)
         clearExplainPolling()
         if (explainListUnsubscribe) {
@@ -2232,6 +2404,10 @@ if (!window.__ModuleLoader__ || typeof window.__ModuleLoader__.load !== 'functio
           root.addEventListener('pointerup', onPointerUp, true)
           root.addEventListener('pointercancel', onPointerUp, true)
           root.addEventListener('contextmenu', onContextMenu)
+          root.addEventListener('dragenter', onDragEnter, true)
+          root.addEventListener('dragover', onDragOver, true)
+          root.addEventListener('dragleave', onDragLeave, true)
+          root.addEventListener('drop', onDrop, true)
           hideBtn.addEventListener('click', onHide)
           styleBtn.addEventListener('click', onStyle)
           restoreBtn.addEventListener('click', onRestore)
