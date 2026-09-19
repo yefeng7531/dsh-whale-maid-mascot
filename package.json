@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "DeepSeek 娘 (whale maid) in-page mascot for the DeepSeek Harness web UI. Uses transparent PNGs for multiple poses, with drag animation and an affection system.",
   "type": "module",
+  "scripts": {
+    "test": "playwright test"
+  },
   "exports": {
     ".": "./dsh/index.js",
     "./dsh": "./dsh/index.js",
@@ -19,5 +22,8 @@
       "immediately": true
     }
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
+  }
 }

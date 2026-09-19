@@ -57,6 +57,18 @@ dsh plugin --profile web add <本目录路径>
 dsh plugin --profile web remove dsh-whale-maid-mascot
 ```
 
+## 回归测试
+
+使用 Node.js 20 或更新版本：
+
+```bash
+npm ci
+npx playwright install chromium
+npm test
+```
+
+测试会自动启动本地 QA 服务器，在 Chromium 中加载实际客户端，并模拟会话服务和删除接口，覆盖解释记录清理失败重试、部分成功及并发清理；不需要运行 DeepSeek Harness，也不会操作真实会话。
+
 ## 改气泡文案 / 尺寸 / 位置
 
 编辑 `dsh/client.js` 顶部的 `LINES` 数组和 `.wm-img`、`.wm-root` 样式后刷新页面即可。

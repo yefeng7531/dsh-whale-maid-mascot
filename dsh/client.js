@@ -1756,18 +1756,43 @@ if (!window.__ModuleLoader__ || typeof window.__ModuleLoader__.load !== 'functio
         return out
       }
 
-      function removeExplainMapping(key, explainId) {
+      var explainDeletesInFlight = Object.create(null)
+
+      function deleteExplainSession(explainId) {
+        if (explainDeletesInFlight[explainId]) return explainDeletesInFlight[explainId]
+        var pending
         try {
-          storeRemove(key)
-        } catch (e) {}
-        if (explainId) {
-          var arr = getExplainSessionIds().filter(function (id) {
-            return id !== explainId
-          })
-          try {
-            storeSet(LS_EXPLAIN_SESSIONS, JSON.stringify(arr))
-          } catch (e) {}
+          pending = Promise.resolve(deleteSessionById(explainId))
+        } catch (e) {
+          return Promise.reject(e)
         }
+        var request = pending.then(function (result) {
+          delete explainDeletesInFlight[explainId]
+          return result
+        }, function (err) {
+          delete explainDeletesInFlight[explainId]
+          throw err
+        })
+        explainDeletesInFlight[explainId] = request
+        return request
+      }
+
+      function forgetExplainSession(explainId) {
+        if (!explainId) return
+        var stillMapped = getExplainMappings().some(function (m) {
+          return m.explainId === explainId
+        })
+        if (stillMapped) return
+        var arr = getExplainSessionIds().filter(function (id) {
+          return id !== explainId
+        })
+        storeSet(LS_EXPLAIN_SESSIONS, JSON.stringify(arr))
+      }
+
+      function removeExplainMapping(key, explainId) {
+        // A new explanation may have replaced this mapping while deletion was pending.
+        if (storeGet(key) === explainId) storeRemove(key)
+        forgetExplainSession(explainId)
       }
 
       function cleanupOrphanExplainSessions() {
@@ -1784,13 +1809,12 @@ if (!window.__ModuleLoader__ || typeof window.__ModuleLoader__.load !== 'functio
         mappings.forEach(function (m) {
           var sourceExists = !!byId[m.sourceId]
           var explainExists = !!byId[m.explainId]
-          if (!sourceExists || !explainExists) {
-            if (explainExists) {
-              try {
-                deleteSessionById(m.explainId).catch(function () {})
-              } catch (e) {}
-            }
+          if (!explainExists) {
             removeExplainMapping(m.key, m.explainId)
+          } else if (!sourceExists) {
+            deleteExplainSession(m.explainId).then(function () {
+              removeExplainMapping(m.key, m.explainId)
+            }, function () {})
           }
         })
       }
@@ -1812,27 +1836,23 @@ if (!window.__ModuleLoader__ || typeof window.__ModuleLoader__.load !== 'functio
           return
         }
         var deletes = unique.map(function (id) {
-          try {
-            return deleteSessionById(id).then(function () {
-              return true
-            }, function () {
-              return false
-            })
-          } catch (e) {
-            return Promise.resolve(false)
-          }
+          return deleteExplainSession(id).then(function () {
+            return true
+          }, function () {
+            return false
+          })
         })
         Promise.all(deletes).then(function (results) {
           var failed = results.filter(function (ok) { return !ok }).length
           mappings.forEach(function (m) {
-            try { storeRemove(m.key) } catch (e) {}
+            if (results[unique.indexOf(m.explainId)]) removeExplainMapping(m.key, m.explainId)
           })
-          try {
-            storeSet(LS_EXPLAIN_SESSIONS, '[]')
-          } catch (e) {}
+          unique.forEach(function (id, i) {
+            if (results[i]) forgetExplainSession(id)
+          })
           if (explainPanelBody) explainPanelBody.innerHTML = ''
           if (failed > 0) {
-            addExplainEntry('assistant', '已清理本地记录，但 ' + failed + ' 个隐藏会话删除失败。')
+            addExplainEntry('assistant', failed + ' 个隐藏会话删除失败，已保留记录，可稍后重试清理。')
             say('部分解释记录清理失败')
           } else {
             addExplainEntry('assistant', '已清理解释记录。')
